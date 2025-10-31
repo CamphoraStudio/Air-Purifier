@@ -1,10 +1,5 @@
 # Minimalist firmware for testing fan resonance offsets.
 
-esp32:
-  board: esp32-c3-devkitm-1
-  framework:
-    type: esp-idf
-
 esphome:
   on_boot:
     priority: -100.0 # Run after components are set up
@@ -12,6 +7,12 @@ esphome:
       - lambda: |-
           id(fan_test_status).publish_state("Idle");
           id(final_target_speed).publish_state(0.0);
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
 
 switch:
   - platform: gpio
@@ -22,11 +23,11 @@ switch:
     restore_mode: ALWAYS_ON
 
 globals:
-  # This global will be updated by the test script
   - id: current_fan_offset
     type: float
     initial_value: '0.0f'
 
+# --- Home Assistant Interface ---
 button:
   - platform: template
     name: "Start Fan Test"
@@ -41,8 +42,7 @@ text_sensor:
     icon: "mdi:clipboard-text-clock"
 
 sensor:
-  # Exposed to HA for the final, authoritative fan speed target.
-  # The test script will publish states to this sensor.
+  # Final fan speed target.
   - platform: template
     name: "Final Target Speed"
     id: final_target_speed
@@ -52,8 +52,6 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            // Translate the final target speed (0-100%) into the five staggered PWM signals.
-            // This now reads the offset from the global 'current_fan_offset'.
             float target_speed_level = x / 100.0f;
             
             if (target_speed_level == 0.0f) {
@@ -67,7 +65,6 @@ sensor:
                 return 0.1f + (speed * 0.9f);
               };
               
-              // Read the offset from the global variable
               float offset = id(current_fan_offset);
 
               float fan_1_target = target_speed_level;
@@ -83,7 +80,7 @@ sensor:
               id(pwm_fan_5).set_level(calculate_pwm(fan_5_target));
             }
 
-  # Tachometer Sensor for reading fan RPM. This is still active.
+  # Tachometer Sensor for reading fan RPM.
   - platform: pulse_counter
     pin:
       number: GPIO1
@@ -92,7 +89,7 @@ sensor:
     id: fan_rpm
     update_interval: 2s
     filters:
-      - multiply: 0.5 # Convert Pulses/Min to Revolutions/Min (2 pulses per revolution)
+      - multiply: 0.5 # 2 pulses per revolution
     unit_of_measurement: "RPM"
     icon: "mdi:fan-clock"
     accuracy_decimals: 0
@@ -121,92 +118,80 @@ output:
     frequency: 25000 Hz
 
 # --- Core Test Logic ---
+# --- Core Test Logic ---
 script:
-  # Helper script to test one specific speed/offset combination
-  - id: _run_test_step
-    mode: single
-    parameters:
-      speed_percent: float
-      offset_float: float
-      offset_text: string
-    then:
-      # 1. Log the action
-      - lambda: |-
-          ESP_LOGI("test_step", "Testing %.0f%% speed, %s offset...", speed_percent, offset_text.c_str());
-          
-      # 2. Set the global offset variable
-      - lambda: |-
-          id(current_fan_offset) = offset_float;
-
-      # 3. Update the status text sensor in HA
-      - lambda: |-
-          id(fan_test_status).publish_state((std::to_string((int)speed_percent) + "% | " + offset_text).c_str());
-      
-      # 4. Set the target speed (this triggers the on_value lambda)
-      - lambda: |-
-          id(final_target_speed).publish_state(speed_percent);
-
-      # 5. Wait 10 seconds
-      - delay: 10s
-
   # Main test sequence script, triggered by the HA button
   - id: run_fan_test
     mode: restart # Allows re-pressing the button to restart the test
     then:
       # 1. Initial 5-second countdown (fans OFF)
-      - logger.log: "Test starting in 5 seconds..."
-      - id(final_target_speed).publish_state(0.0) # Ensure fans are off
-      - id(fan_test_status).publish_state("Test Starting...")
+      - lambda: |-
+          id(final_target_speed).publish_state(0.0);
+          id(fan_test_status).publish_state("Test Starting...");
       - delay: 5s
 
-      # 2. Test at 100% Speed
-      - logger.log: "--- STARTING 100% SPEED TEST ---"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 100.0
-          offset_float: 0.0
-          offset_text: "0.0%"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 100.0
-          offset_float: 0.01
-          offset_text: "1.0%"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 100.0
-          offset_float: 0.022
-          offset_text: "2.2%"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 100.0
-          offset_float: 0.047
-          offset_text: "4.7%"
-          
-      # 3. Test at 50% Speed
-      - logger.log: "--- STARTING 50% SPEED TEST ---"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 50.0
-          offset_float: 0.0
-          offset_text: "0.0%"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 50.0
-          offset_float: 0.01
-          offset_text: "1.0%"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 50.0
-          offset_float: 0.022
-          offset_text: "2.2%"
-      - script.execute:
-          id: _run_test_step
-          speed_percent: 50.0
-          offset_float: 0.047
-          offset_text: "4.7%"
+      # --- 2. Test at 100% Speed ---
 
-      # 4. Test Complete - Shut down
-      - logger.log: "--- TEST COMPLETE ---"
-      - id(final_target_speed).publish_state(0.0)
-      - lambda: 'id(current_fan_offset) = 0.0f;' # Reset offset to default
-      - id(fan_test_status).publish_state("Idle")
+      # STEP: 100% | 0.0%
+      - lambda: |-
+          id(current_fan_offset) = 0.0f;
+          id(fan_test_status).publish_state("100% | 0.0%");
+          id(final_target_speed).publish_state(100.0);
+      - delay: 10s
+
+      # STEP: 100% | 1.0%
+      - lambda: |-
+          id(current_fan_offset) = 0.01f;
+          id(fan_test_status).publish_state("100% | 1.0%");
+          id(final_target_speed).publish_state(100.0);
+      - delay: 10s
+
+      # STEP: 100% | 2.2%
+      - lambda: |-
+          id(current_fan_offset) = 0.022f;
+          id(fan_test_status).publish_state("100% | 2.2%");
+          id(final_target_speed).publish_state(100.0);
+      - delay: 10s
+
+      # STEP: 100% | 4.7%
+      - lambda: |-
+          id(current_fan_offset) = 0.047f;
+          id(fan_test_status).publish_state("100% | 4.7%");
+          id(final_target_speed).publish_state(100.0);
+      - delay: 10s
+
+      # --- 3. Test at 50% Speed ---
+
+      # STEP: 50% | 0.0%
+      - lambda: |-
+          id(current_fan_offset) = 0.0f;
+          id(fan_test_status).publish_state("50% | 0.0%");
+          id(final_target_speed).publish_state(50.0);
+      - delay: 10s
+
+      # STEP: 50% | 1.0%
+      - lambda: |-
+          id(current_fan_offset) = 0.01f;
+          id(fan_test_status).publish_state("50% | 1.0%");
+          id(final_target_speed).publish_state(50.0);
+      - delay: 10s
+
+      # STEP: 50% | 2.2%
+      - lambda: |-
+          id(current_fan_offset) = 0.022f;
+          id(fan_test_status).publish_state("50% | 2.2%");
+          id(final_target_speed).publish_state(50.0);
+      - delay: 10s
+
+      # STEP: 50% | 4.7%
+      - lambda: |-
+          id(current_fan_offset) = 0.047f;
+          id(fan_test_status).publish_state("50% | 4.7%");
+          id(final_target_speed).publish_state(50.0);
+      - delay: 10s
+
+      # --- 4. Test Complete - Shut down ---
+      - lambda: |-
+          id(final_target_speed).publish_state(0.0);
+          id(current_fan_offset) = 0.0f;
+          id(fan_test_status).publish_state("Idle");
