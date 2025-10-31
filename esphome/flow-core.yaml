@@ -5,6 +5,14 @@ esp32:
   framework:
     type: esp-idf
 
+esphome:
+  on_boot:
+    priority: -100.0 # Run after components are set up
+    then:
+      - lambda: |-
+          id(fan_test_status).publish_state("Idle");
+          id(final_target_speed).publish_state(0.0);
+
 switch:
   - platform: gpio
     pin: GPIO18
@@ -31,7 +39,6 @@ text_sensor:
     name: "Fan Test Status"
     id: fan_test_status
     icon: "mdi:clipboard-text-clock"
-    initial_value: "Idle"
 
 sensor:
   # Exposed to HA for the final, authoritative fan speed target.
@@ -42,7 +49,6 @@ sensor:
     unit_of_measurement: "%"
     icon: "mdi:fan-chevron-up"
     accuracy_decimals: 1
-    initial_value: 0.0 # Fans are OFF by default
     on_value:
       then:
         - lambda: |-
@@ -119,25 +125,28 @@ script:
   # Helper script to test one specific speed/offset combination
   - id: _run_test_step
     mode: single
-    # Parameters to pass to the script
     parameters:
       speed_percent: float
       offset_float: float
       offset_text: string
     then:
-      - logger.log: !lambda
-          return (std::string("Testing ") + std::to_string((int)speed_percent) + "% speed, " + offset_text + " offset...").c_str();
-      # 1. Set the global offset variable
-      - lambda:
+      # 1. Log the action
+      - lambda: |-
+          ESP_LOGI("test_step", "Testing %.0f%% speed, %s offset...", speed_percent, offset_text.c_str());
+          
+      # 2. Set the global offset variable
+      - lambda: |-
           id(current_fan_offset) = offset_float;
-      # 2. Update the status text sensor in HA
-      - id(fan_test_status).publish_state(
-          !lambda
-            return (std::to_string((int)speed_percent) + "% | " + offset_text).c_str();
-        );
-      # 3. Set the target speed (this triggers the on_value lambda)
-      - id(final_target_speed).publish_state(speed_percent);
-      # 4. Wait 10 seconds
+
+      # 3. Update the status text sensor in HA
+      - lambda: |-
+          id(fan_test_status).publish_state((std::to_string((int)speed_percent) + "% | " + offset_text).c_str());
+      
+      # 4. Set the target speed (this triggers the on_value lambda)
+      - lambda: |-
+          id(final_target_speed).publish_state(speed_percent);
+
+      # 5. Wait 10 seconds
       - delay: 10s
 
   # Main test sequence script, triggered by the HA button
