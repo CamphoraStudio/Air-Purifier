@@ -118,7 +118,6 @@ output:
     frequency: 25000 Hz
 
 # --- Core Test Logic ---
-# --- Core Test Logic ---
 script:
   # Main test sequence script, triggered by the HA button
   - id: run_fan_test
@@ -132,63 +131,77 @@ script:
 
       # --- 2. Test at 100% Speed ---
 
+      # STEP: 100% (Spin-up period)
+      - lambda: |-
+          id(current_fan_offset) = 0.0f;
+          id(fan_test_status).publish_state("Spin-up to 100%...");
+          id(final_target_speed).publish_state(100.0);
+      - delay: 10s # <-- 10 second spin-up time
+
       # STEP: 100% | 0.0%
       - lambda: |-
           id(current_fan_offset) = 0.0f;
           id(fan_test_status).publish_state("100% | 0.0%");
           id(final_target_speed).publish_state(100.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # STEP: 100% | 1.0%
       - lambda: |-
           id(current_fan_offset) = 0.01f;
           id(fan_test_status).publish_state("100% | 1.0%");
           id(final_target_speed).publish_state(100.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # STEP: 100% | 2.2%
       - lambda: |-
           id(current_fan_offset) = 0.022f;
           id(fan_test_status).publish_state("100% | 2.2%");
           id(final_target_speed).publish_state(100.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # STEP: 100% | 4.7%
       - lambda: |-
           id(current_fan_offset) = 0.047f;
           id(fan_test_status).publish_state("100% | 4.7%");
           id(final_target_speed).publish_state(100.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # --- 3. Test at 50% Speed ---
+
+      # STEP: 50% (Spin-down period)
+      - lambda: |-
+          id(current_fan_offset) = 0.0f;
+          id(fan_test_status).publish_state("Spin-down to 50%...");
+          id(final_target_speed).publish_state(50.0);
+      - delay: 10s # <-- 10 second spin-down time
 
       # STEP: 50% | 0.0%
       - lambda: |-
           id(current_fan_offset) = 0.0f;
           id(fan_test_status).publish_state("50% | 0.0%");
           id(final_target_speed).publish_state(50.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # STEP: 50% | 1.0%
       - lambda: |-
           id(current_fan_offset) = 0.01f;
           id(fan_test_status).publish_state("50% | 1.0%");
           id(final_target_speed).publish_state(50.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # STEP: 50% | 2.2%
       - lambda: |-
           id(current_fan_offset) = 0.022f;
           id(fan_test_status).publish_state("50% | 2.2%");
           id(final_target_speed).publish_state(50.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # STEP: 50% | 4.7%
       - lambda: |-
           id(current_fan_offset) = 0.047f;
           id(fan_test_status).publish_state("50% | 4.7%");
           id(final_target_speed).publish_state(50.0);
-      - delay: 10s
+      - delay: 20s # <-- 20 second test time
 
       # --- 4. Test Complete - Shut down ---
       - lambda: |-
