@@ -23,9 +23,13 @@ switch:
     restore_mode: ALWAYS_ON
 
 globals:
-  - id: current_fan_offset
-    type: float
-    initial_value: '0.0f'
+  # This global variable will select the test mode:
+  # 0 = No Offset (5:0)
+  # 1 = 4:1 Split
+  # 2 = 3:2 Split
+  - id: test_mode
+    type: int
+    initial_value: '0'
 
 # --- Home Assistant Interface ---
 button:
@@ -51,8 +55,9 @@ sensor:
     accuracy_decimals: 1
     on_value:
       then:
+        # --- THIS IS THE NEW LOGIC ---
         - lambda: |-
-            float target_speed_level = x / 100.0f;
+            float target_speed_level = x / 100.0f; // e.g., 1.0, 0.5, or 0.0
             
             if (target_speed_level == 0.0f) {
               id(pwm_fan_1).set_level(0.0f);
@@ -61,17 +66,36 @@ sensor:
               id(pwm_fan_4).set_level(0.0f);
               id(pwm_fan_5).set_level(0.0f);
             } else {
+              // This is the function to map 0.0-1.0 to 0.1-1.0 (10%-100% duty)
               auto calculate_pwm = [&](float speed) {
                 return 0.1f + (speed * 0.9f);
               };
               
-              float offset = id(current_fan_offset);
+              int mode = id(test_mode);
+              float fan_1_target, fan_2_target, fan_3_target, fan_4_target, fan_5_target;
 
-              float fan_1_target = target_speed_level;
-              float fan_2_target = clamp(target_speed_level - (1 * offset), 0.0f, 1.0f);
-              float fan_3_target = clamp(target_speed_level - (2 * offset), 0.0f, 1.0f);
-              float fan_4_target = clamp(target_speed_level - (3 * offset), 0.0f, 1.0f);
-              float fan_5_target = clamp(target_speed_level - (4 * offset), 0.0f, 1.0f);
+              // This is the 1% slower speed (e.g., 1.0 -> 0.99, or 0.5 -> 0.49)
+              float offset_speed = clamp(target_speed_level - 0.01f, 0.0f, 1.0f);
+
+              if (mode == 1) { // 4:1 Split
+                fan_1_target = target_speed_level;
+                fan_2_target = target_speed_level;
+                fan_3_target = target_speed_level;
+                fan_4_target = target_speed_level;
+                fan_5_target = offset_speed; // One fan is 1% less
+              } else if (mode == 2) { // 3:2 Split
+                fan_1_target = target_speed_level;
+                fan_2_target = target_speed_level;
+                fan_3_target = target_speed_level;
+                fan_4_target = offset_speed; // Two fans are 1% less
+                fan_5_target = offset_speed;
+              } else { // Mode 0 or default: No Offset (5:0)
+                fan_1_target = target_speed_level;
+                fan_2_target = target_speed_level;
+                fan_3_target = target_speed_level;
+                fan_4_target = target_speed_level;
+                fan_5_target = target_speed_level;
+              }
 
               id(pwm_fan_1).set_level(calculate_pwm(fan_1_target));
               id(pwm_fan_2).set_level(calculate_pwm(fan_2_target));
@@ -133,36 +157,29 @@ script:
 
       # STEP: 100% (Spin-up period)
       - lambda: |-
-          id(current_fan_offset) = 0.0f;
+          id(test_mode) = 0; // Use 'No Offset' for spin-up
           id(fan_test_status).publish_state("Spin-up to 100%...");
           id(final_target_speed).publish_state(100.0);
       - delay: 10s # <-- 10 second spin-up time
 
-      # STEP: 100% | 0.0%
+      # STEP: 100% | No Offset (5:0)
       - lambda: |-
-          id(current_fan_offset) = 0.0f;
-          id(fan_test_status).publish_state("100% | 0.0%");
+          id(test_mode) = 0;
+          id(fan_test_status).publish_state("100% | No Offset (5:0)");
           id(final_target_speed).publish_state(100.0);
       - delay: 20s # <-- 20 second test time
 
-      # STEP: 100% | 1.0%
+      # STEP: 100% | 4:1 Split
       - lambda: |-
-          id(current_fan_offset) = 0.01f;
-          id(fan_test_status).publish_state("100% | 1.0%");
+          id(test_mode) = 1;
+          id(fan_test_status).publish_state("100% | 4:1 Split");
           id(final_target_speed).publish_state(100.0);
       - delay: 20s # <-- 20 second test time
 
-      # STEP: 100% | 2.2%
+      # STEP: 100% | 3:2 Split
       - lambda: |-
-          id(current_fan_offset) = 0.022f;
-          id(fan_test_status).publish_state("100% | 2.2%");
-          id(final_target_speed).publish_state(100.0);
-      - delay: 20s # <-- 20 second test time
-
-      # STEP: 100% | 4.7%
-      - lambda: |-
-          id(current_fan_offset) = 0.047f;
-          id(fan_test_status).publish_state("100% | 4.7%");
+          id(test_mode) = 2;
+          id(fan_test_status).publish_state("100% | 3:2 Split");
           id(final_target_speed).publish_state(100.0);
       - delay: 20s # <-- 20 second test time
 
@@ -170,41 +187,34 @@ script:
 
       # STEP: 50% (Spin-down period)
       - lambda: |-
-          id(current_fan_offset) = 0.0f;
+          id(test_mode) = 0; // Use 'No Offset' for spin-down
           id(fan_test_status).publish_state("Spin-down to 50%...");
           id(final_target_speed).publish_state(50.0);
       - delay: 10s # <-- 10 second spin-down time
 
-      # STEP: 50% | 0.0%
+      # STEP: 50% | No Offset (5:0)
       - lambda: |-
-          id(current_fan_offset) = 0.0f;
-          id(fan_test_status).publish_state("50% | 0.0%");
+          id(test_mode) = 0;
+          id(fan_test_status).publish_state("50% | No Offset (5:0)");
           id(final_target_speed).publish_state(50.0);
       - delay: 20s # <-- 20 second test time
 
-      # STEP: 50% | 1.0%
+      # STEP: 50% | 4:1 Split
       - lambda: |-
-          id(current_fan_offset) = 0.01f;
-          id(fan_test_status).publish_state("50% | 1.0%");
+          id(test_mode) = 1;
+          id(fan_test_status).publish_state("50% | 4:1 Split");
           id(final_target_speed).publish_state(50.0);
       - delay: 20s # <-- 20 second test time
 
-      # STEP: 50% | 2.2%
+      # STEP: 50% | 3:2 Split
       - lambda: |-
-          id(current_fan_offset) = 0.022f;
-          id(fan_test_status).publish_state("50% | 2.2%");
-          id(final_target_speed).publish_state(50.0);
-      - delay: 20s # <-- 20 second test time
-
-      # STEP: 50% | 4.7%
-      - lambda: |-
-          id(current_fan_offset) = 0.047f;
-          id(fan_test_status).publish_state("50% | 4.7%");
+          id(test_mode) = 2;
+          id(fan_test_status).publish_state("50% | 3:2 Split");
           id(final_target_speed).publish_state(50.0);
       - delay: 20s # <-- 20 second test time
 
       # --- 4. Test Complete - Shut down ---
       - lambda: |-
           id(final_target_speed).publish_state(0.0);
-          id(current_fan_offset) = 0.0f;
+          id(test_mode) = 0; // Reset mode to default
           id(fan_test_status).publish_state("Idle");
